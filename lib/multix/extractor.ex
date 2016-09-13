@@ -40,13 +40,15 @@ defmodule Multix.Extractor do
   @spec extract_impls(module, [charlist | String.t]) :: [atom]
   def extract_impls(protocol, paths) when is_atom(protocol) do
     prefix = Atom.to_charlist(protocol) ++ '.'
-    extract_matching_by_attribute paths, prefix, fn
+    extract_matching_by_attribute(paths, prefix, fn
       _mod, attributes ->
         case attributes[:multix_dispatch] do
-          [multix: ^protocol, for: for, index: _index] -> for
+          [multix: ^protocol, for: for, index: index] -> {for, index}
           _ -> nil
         end
-    end
+    end)
+    |> Enum.sort_by(&elem(&1, 1), &Kernel.>=/2)
+    |> Enum.map(&elem(&1, 0))
   end
 
   defp extract_matching_by_attribute(paths, prefix, callback) do

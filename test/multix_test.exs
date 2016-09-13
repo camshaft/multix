@@ -1,4 +1,4 @@
-import Multix
+use Multix
 
 defdispatch Foo, for: value when value == 1 do
   def test(_value) do

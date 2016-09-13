@@ -64,8 +64,9 @@ defmodule Multix.Multi do
     end
   end
 
-    @doc """
+  @doc """
   Defines a new multi-method function.
+
   Multi-method modules do not allow functions to be defined directly, instead, the
   regular `Kernel.def/*` macros are replaced by this macro which
   defines the multi-method functions with the appropriate callbacks.

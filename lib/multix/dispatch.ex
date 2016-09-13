@@ -2,14 +2,21 @@ defmodule Multix.Dispatch do
   def compile(name, opts, [do: block]) do
     %{for: pattern} = opts = :maps.from_list(opts)
 
-    module = Module.concat(name, (opts[:name] || "P" <> encode_name(pattern)))
+    pattern_s = Macro.to_string(pattern)
+
+    module = Module.concat(name, (opts[:name] || "P" <> encode_name(pattern_s)))
 
     quote do
+      name = unquote(name)
+
+      Multix.assert_multi!(name)
+      Multix.Dispatch.__ensure_defdispatch__(name, unquote(pattern_s), __ENV__)
+
       defmodule unquote(module) do
         @moduledoc false
 
         Module.register_attribute(__MODULE__, :multix_dispatch, persist: true)
-        @multix_dispatch [multix: unquote(name), for: __MODULE__, index: unquote(opts[:index] || 0)]
+        @multix_dispatch [multix: name, for: __MODULE__, index: unquote(opts[:index] || 0)]
 
         def __multix_clause__ do
           unquote(format_clause(pattern, module))
@@ -21,10 +28,7 @@ defmodule Multix.Dispatch do
   end
 
   defp encode_name(pattern) do
-    str = pattern
-    |> Macro.to_string()
-
-    :crypto.hash(:md5, str)
+    :crypto.hash(:md5, pattern)
     |> Base.url_encode64()
     |> String.replace("=", "")
   end
@@ -54,5 +58,16 @@ defmodule Multix.Dispatch do
         unquote(module)
       end
     end
+  end
+
+  @doc false
+  def __ensure_defdispatch__(protocol, for, env) do
+    if Multix.consolidated?(protocol) do
+      message =
+        "the #{inspect protocol} protocol has already been consolidated" <>
+        ", an implementation for #{inspect for} has no effect"
+      :elixir_errors.warn(env.line, env.file, message)
+    end
+    :ok
   end
 end

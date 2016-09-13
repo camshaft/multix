@@ -1,10 +1,11 @@
 defmodule Multix.Dispatch do
-  def compile(name, pattern, [do: block]) do
+  def compile(name, opts, [do: block]) do
+    %{for: pattern} = opts = :maps.from_list(opts)
     quote do
       defmodule Module.concat(unquote(name), unquote(Macro.to_string(pattern))) do
 
         Module.register_attribute(__MODULE__, :multix_dispatch, persist: true)
-        @multix_dispatch [multix: unquote(name), for: __MODULE__]
+        @multix_dispatch [multix: unquote(name), for: __MODULE__, index: unquote(opts[:index] || 0)]
 
         unquote(compile_pattern(pattern))
 

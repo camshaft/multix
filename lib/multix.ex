@@ -13,7 +13,7 @@ if Mix.env == :test do
   defmodule FooContainer do
     import Multix
 
-    defdispatch Foo, :test do
+    defdispatch Foo, for: :test do
       def test(_) do
         :ITS_A_TEST
       end

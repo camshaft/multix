@@ -43,7 +43,7 @@ defmodule Multix.Extractor do
     extract_matching_by_attribute paths, prefix, fn
       _mod, attributes ->
         case attributes[:multix_dispatch] do
-          [multix: ^protocol, for: for] -> for
+          [multix: ^protocol, for: for, index: _index] -> for
           _ -> nil
         end
     end

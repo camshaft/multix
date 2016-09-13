@@ -45,15 +45,6 @@ defmodule Multix.Multi do
         impl_for(data) || raise(Protocol.UndefinedError, protocol: __MODULE__, value: data)
       end
 
-      # Check if compilation is available internally
-      Kernel.defp impl_for?(target) do
-        Code.ensure_compiled?(target) and
-          function_exported?(target, :__impl__, 1)
-      end
-
-      # Inline any and struct implementations
-      @compile {:inline, impl_for?: 1}
-
       unless Kernel.Typespec.defines_type?(__MODULE__, :t, 0) do
         @type t :: term
       end

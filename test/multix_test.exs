@@ -4,13 +4,13 @@ defmulti Foo do
   def test(value)
 end
 
-defdispatch Foo, value when value == 1 do
+defdispatch Foo, for: value when value == 1 do
   def test(_value) do
     :ITS_ONE!
   end
 end
 
-defdispatch Foo, %{type: :foo} do
+defdispatch Foo, for: %{type: :foo} do
   def test(%{value: value}) do
     value
   end

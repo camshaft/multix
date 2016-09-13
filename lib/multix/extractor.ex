@@ -16,7 +16,7 @@ defmodule Multix.Extractor do
   def extract_protocols(paths) do
     extract_matching_by_attribute paths, 'Elixir.',
       fn module, attributes ->
-        case attributes[:multi] do
+        case attributes[:multix] do
           [] -> module
           _ -> nil
         end

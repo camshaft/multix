@@ -55,12 +55,12 @@ defmodule Multix.Multi do
       @multix []
 
       @doc false
-      @spec __multi__(:module) :: __MODULE__
-      @spec __multi__(:functions) :: unquote(Protocol.__functions_spec__(@functions))
-      @spec __multi__(:consolidated?) :: boolean
-      Kernel.def __multi__(:module), do: __MODULE__
-      Kernel.def __multi__(:functions), do: unquote(:lists.sort(@functions))
-      Kernel.def __multi__(:consolidated?), do: false
+      @spec __multix__(:module) :: __MODULE__
+      @spec __multix__(:functions) :: unquote(Protocol.__functions_spec__(@functions))
+      @spec __multix__(:consolidated?) :: boolean
+      Kernel.def __multix__(:module), do: __MODULE__
+      Kernel.def __multix__(:functions), do: unquote(:lists.sort(@functions))
+      Kernel.def __multix__(:consolidated?), do: false
     end
   end
 
@@ -112,10 +112,17 @@ defmodule Multix.Multi do
   def __find_match__([], _) do
     nil
   end
-  def __find_match__([module | rest], data) do
-    module.__match__(data)
+  def __find_match__(types, data) do
+    clauses = Enum.map(types, fn(type) ->
+      type.__multix_clause__()
+    end)
+    fun = {:fun, 1, {:clauses, clauses}}
+    |> :erl_eval.expr([])
+    |> elem(1)
+
+    fun.(data)
   rescue
     FunctionClauseError ->
-      __find_match__(rest, data)
+      nil
   end
 end

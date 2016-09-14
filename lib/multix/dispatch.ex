@@ -5,6 +5,10 @@ defmodule Multix.Dispatch do
     pattern_s = Macro.to_string(pattern)
 
     module = Module.concat(name, (opts[:name] || "P" <> encode_name(pattern_s)))
+    index = opts[:index] || case pattern do
+                              {:_, _, _} -> -100
+                              _ -> 0
+                            end
 
     quote do
       name = unquote(name)
@@ -16,10 +20,21 @@ defmodule Multix.Dispatch do
         @moduledoc false
 
         Module.register_attribute(__MODULE__, :multix_dispatch, persist: true)
-        @multix_dispatch [multix: name, for: __MODULE__, index: unquote(opts[:index] || 0)]
+        @multix_dispatch [multix: name,
+                          for: __MODULE__,
+                          index: unquote(index),
+                          location: {__ENV__.file, __ENV__.line}]
 
         def __multix_clause__ do
           unquote(format_clause(pattern, module, env))
+        end
+
+        def __multix_info__ do
+          %{pattern: unquote(Macro.escape(pattern)),
+            pattern_s: unquote(pattern_s),
+            file: __ENV__.file,
+            line: __ENV__.line,
+            index: unquote(index)}
         end
 
         _ = unquote(block)

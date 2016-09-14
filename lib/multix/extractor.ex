@@ -43,11 +43,20 @@ defmodule Multix.Extractor do
     extract_matching_by_attribute(paths, prefix, fn
       _mod, attributes ->
         case attributes[:multix_dispatch] do
-          [multix: ^protocol, for: for, index: index] -> {for, index}
-          _ -> nil
+          [multix: ^protocol, for: for, index: index, location: location] ->
+            {for, index, location}
+          _ ->
+            nil
         end
     end)
-    |> Enum.sort_by(&elem(&1, 1), &Kernel.>=/2)
+    |> Enum.sort(fn
+      ({_, i, {f, a_l}}, {_, i, {f, b_l}}) ->
+        a_l <= b_l
+      ({_, i, {a_f, _}}, {_, i, {b_f, _}}) ->
+        a_f <= b_f
+      ({_, a_i, _}, {_, b_i, _}) ->
+        a_i >= b_i
+    end)
     |> Enum.map(&elem(&1, 0))
   end
 

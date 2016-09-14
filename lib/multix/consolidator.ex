@@ -30,7 +30,7 @@ defmodule Multix.Consolidator do
   def consolidate(protocol, types) when is_atom(protocol) do
     with {:ok, info} <- beam_protocol(protocol),
          {:ok, code, docs} <- change_debug_info(info, types),
-         do: compile(code, docs)
+         do: compile(code, types, docs)
   end
 
   @docs_chunk 'ExDc'
@@ -89,8 +89,11 @@ defmodule Multix.Consolidator do
     change_impl_for(t, protocol, types, true, acc)
   end
   defp change_impl_for([{:function, line, :impl_for, 1, _} | t], protocol, types, is_protocol, acc) do
-    clauses = Enum.map(types, fn(type) ->
+    clauses = types
+    |> Stream.with_index()
+    |> Enum.map(fn({type, line}) ->
       type.__multix_clause__()
+      |> put_elem(1, line)
     end)
 
     acc = [{:function, line, :impl_for, 1, clauses} | acc]
@@ -102,13 +105,43 @@ defmodule Multix.Consolidator do
   end
 
   # Finally compile the module and emit its bytecode.
-  defp compile({protocol, code}, docs) do
+  defp compile({protocol, code}, types, docs) do
     opts = if Code.compiler_options[:debug_info], do: [:debug_info], else: []
-    {:ok, ^protocol, binary, _warnings} = :compile.forms(code, [:return | opts])
+    {:ok, ^protocol, binary, warnings} = :compile.forms(code, [:return | opts])
+    if length(warnings) > 0, do: format_warning(protocol, warnings, types)
     {:ok,
       case docs do
         :missing_chunk -> binary
         _ -> :elixir_module.add_beam_chunk(binary, @docs_chunk, docs)
       end}
+  end
+
+  defp format_warning(name, [{_file, warnings}], types) do
+    lines = warnings
+    |> Stream.map(fn({idx, _, _}) ->
+      {idx, true}
+    end)
+    |> Enum.into(%{})
+
+    patterns = types
+    |> Stream.with_index()
+    |> Stream.map(fn({type, idx}) ->
+      prefix = if lines[idx], do: [:red, ">"], else: " "
+      %{pattern_s: pattern_s, file: file, line: line, index: index} = type.__multix_info__
+      file =  Path.relative_to_cwd(file)
+      location = Exception.format_file_line(file, line)
+
+      ["  ", location, " ", inspect(index: index), "\n  ", prefix, " ", pattern_s, "  "]
+      |> IO.ANSI.format()
+    end)
+    |> Enum.join("\n")
+
+    :elixir_errors.warn("""
+    #{inspect(name)} has unreachable dispatch patterns:
+
+    #{patterns}
+
+      This can be fixed by reordering the dispatches with the index option.
+    """ |> String.trim)
   end
 end

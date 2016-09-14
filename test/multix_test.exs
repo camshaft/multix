@@ -12,6 +12,12 @@ defdispatch Foo, for: %{type: :foo} do
   end
 end
 
+defdispatch Foo, for: _ do
+  def test(_) do
+    :FALLBACK
+  end
+end
+
 defmodule Test.Multix do
   use ExUnit.Case
 
@@ -19,6 +25,7 @@ defmodule Test.Multix do
     assert Foo.test(%{type: :foo, value: 123}) == 123
     assert Foo.test(1) == :ITS_ONE!
     assert Foo.test(:test) == :ITS_A_TEST
+    assert Foo.test(123) == :FALLBACK
   end
 
   test "consolidation" do

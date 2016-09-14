@@ -2,6 +2,7 @@ defmodule Multix.Dispatch do
   def compile(name, opts, [do: block], env) do
     %{for: pattern} = opts = :maps.from_list(opts)
 
+    pattern = Macro.expand(pattern, env)
     pattern_s = Macro.to_string(pattern)
 
     module = Module.concat(name, (opts[:name] || "P" <> encode_name(pattern_s)))
@@ -25,13 +26,10 @@ defmodule Multix.Dispatch do
                           index: unquote(index),
                           location: {__ENV__.file, __ENV__.line}]
 
-        def __multix_clause__ do
-          unquote(format_clause(pattern, module, env))
-        end
-
         def __multix_info__ do
           %{pattern: unquote(Macro.escape(pattern)),
             pattern_s: unquote(pattern_s),
+            erl_clause: unquote(compile_clause(pattern, module, env)),
             file: __ENV__.file,
             line: __ENV__.line,
             index: unquote(index)}
@@ -48,9 +46,10 @@ defmodule Multix.Dispatch do
     |> String.replace("=", "")
   end
 
-  defp format_clause(pattern, module, env) do
-    fun = pattern
-    |> format_fun(module)
+  defp compile_clause(pattern, module, env) do
+    fun = quote do
+      fn(unquote(pattern)) -> unquote(module) end
+    end
     |> Code.eval_quoted([], env)
     |> elem(0)
 
@@ -58,21 +57,6 @@ defmodule Multix.Dispatch do
 
     clause
     |> Macro.escape()
-  end
-
-  defp format_fun({:when, _, [value, guard]}, module) do
-    quote do
-      fn(unquote(value)) when unquote(guard) ->
-        unquote(module)
-      end
-    end
-  end
-  defp format_fun(pattern, module) do
-    quote do
-      fn(unquote(pattern)) ->
-        unquote(module)
-      end
-    end
   end
 
   @doc false

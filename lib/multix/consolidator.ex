@@ -92,7 +92,7 @@ defmodule Multix.Consolidator do
     clauses = types
     |> Stream.with_index()
     |> Enum.map(fn({type, line}) ->
-      type.__multix_clause__()
+      type.__multix_info__().erl_clause
       |> put_elem(1, line)
     end)
 

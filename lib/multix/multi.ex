@@ -115,8 +115,9 @@ defmodule Multix.Multi do
   end
   def __find_match__(types, data) do
     clauses = Enum.map(types, fn(type) ->
-      type.__multix_clause__()
+      type.__multix_info__().erl_clause
     end)
+
     fun = {:fun, 1, {:clauses, clauses}}
     |> :erl_eval.expr([])
     |> elem(1)

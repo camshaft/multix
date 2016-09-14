@@ -1,5 +1,5 @@
 defmodule Multix.Multi do
-  def compile(name, [do: block]) do
+  def compile(name, [do: block], _env) do
     quote do
       defmodule unquote(name) do
         # We don't allow function definition inside protocols

@@ -7,12 +7,12 @@ defmodule Multix do
 
   defmacro defmulti(name, body) do
     {name, _} = Code.eval_quoted(name, [], __CALLER__)
-    __MODULE__.Multi.compile(name, body)
+    __MODULE__.Multi.compile(name, body, __CALLER__)
   end
 
   defmacro defdispatch(name, pattern, body) do
     {name, _} = Code.eval_quoted(name, [], __CALLER__)
-    __MODULE__.Dispatch.compile(name, pattern, body)
+    __MODULE__.Dispatch.compile(name, pattern, body, __CALLER__)
   end
 
   def consolidated?(type) do

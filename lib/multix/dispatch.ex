@@ -1,5 +1,5 @@
 defmodule Multix.Dispatch do
-  def compile(name, opts, [do: block]) do
+  def compile(name, opts, [do: block], env) do
     %{for: pattern} = opts = :maps.from_list(opts)
 
     pattern_s = Macro.to_string(pattern)
@@ -19,7 +19,7 @@ defmodule Multix.Dispatch do
         @multix_dispatch [multix: name, for: __MODULE__, index: unquote(opts[:index] || 0)]
 
         def __multix_clause__ do
-          unquote(format_clause(pattern, module))
+          unquote(format_clause(pattern, module, env))
         end
 
         _ = unquote(block)
@@ -33,10 +33,10 @@ defmodule Multix.Dispatch do
     |> String.replace("=", "")
   end
 
-  defp format_clause(pattern, module) do
+  defp format_clause(pattern, module, env) do
     fun = pattern
     |> format_fun(module)
-    |> Code.eval_quoted([])
+    |> Code.eval_quoted([], env)
     |> elem(0)
 
     {_, [{_, _, _, [clause]}]} = :erlang.fun_info(fun, :env)

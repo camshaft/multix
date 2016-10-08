@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Compile.Multix do
     Mix.Task.run "compile", args
     {opts, _, _} = OptionParser.parse(args, switches: [force: :boolean, verbose: :boolean])
 
-    output   = Mix.Project.consolidation_path(config)
+    output   = Mix.Project.consolidation_path(config) <> "/../multix"
     manifest = Path.join(output, @manifest)
 
     protocols_and_impls = protocols_and_impls(config)

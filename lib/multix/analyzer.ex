@@ -22,7 +22,7 @@ defmodule Multix.Analyzer do
   end
   defp sort_analysis({{_, a_p, _, _}, _},
                      {{_, b_p, _, _}, _}) do
-    # Sort higher priority patterns higher
+    # Sort prioritized patterns
     a_p >= b_p
   end
 
@@ -34,13 +34,19 @@ defmodule Multix.Analyzer do
   defp sort_type({:var, _},     _            ), do: false
   defp sort_type(_,             {:var, _}    ), do: true
   defp sort_type([a],           [b]          ), do: sort_type(a, b)
+  defp sort_type({:bin, s, a_els}, {:bin, s, b_els}) do
+    a_els <= b_els
+  end
+  defp sort_type({:bin, a_s, _}, {:bin, b_s, _}) do
+    a_s >= b_s
+  end
+  defp sort_type({:bin, _, _},   _           ), do: true
+  defp sort_type(_,              {:bin, _, _}), do: false
   defp sort_type(a,             b            ) when is_map(a) and is_map(b) do
     map_size(a) >= map_size(b)
   end
-  #defp sort_type(a_l, b_l) when is_list(a_l) and is_list(b_l) do
-  #
-  #end
   defp sort_type(a, b) do
+    IO.puts "UNHANDLED COMPARISON:"
     IO.inspect a
     IO.inspect b
 
@@ -114,6 +120,19 @@ defmodule Multix.Analyzer do
         l
       # TODO handle this
     end
+  end
+  defp analyze_type({:bin, _, [{:bin_element, _, {:string, _, s}, _, _}]}, _) do
+    {:literal, to_string(s)}
+  end
+  defp analyze_type({:bin, _, elements}, a) do
+    {elements, size} = Enum.map_reduce(elements, 0, fn
+      ({:bin_element, _, {:string, _, s}, _, _}, size) ->
+        s = to_string(s)
+        {{:literal, s}, size + byte_size(s)}
+      ({:bin_element, _, {:var, _, _} = v, :default, [:binary]}, size) ->
+        {analyze_type(v, a), size}
+    end)
+    {:bin, size, elements}
   end
   defp analyze_type(list, assertions) when is_list(list) do
     Enum.map(list, &analyze_type(&1, assertions))

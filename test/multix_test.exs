@@ -46,6 +46,13 @@ defmulti Foo.test(:anon) do
   :IT_WORKED!
 end
 
+defmulti Foo.test("foo"), do: :foo
+defmulti Foo.test("bar"), do: :bar
+defmulti Foo.test("b" <> ar), do: ar
+defmulti Foo.test("f" <> oo), do: oo
+defmulti Foo.test("ba" <> r), do: r
+defmulti Foo.test("fo" <> o), do: o
+
 defmodule Test.Multix do
   use ExUnit.Case
 
@@ -66,6 +73,13 @@ defmodule Test.Multix do
     assert Foo.test(:anon) == :IT_WORKED!
     assert Foo.test(%{value: 4}) == 8
     assert Foo.test(%{value: :foo}) == :foo
+
+    assert Foo.test("foo") == :foo
+    assert Foo.test("bar") == :bar
+    assert Foo.test("ba1") == "1"
+    assert Foo.test("fo2") == "2"
+    assert Foo.test("b3") == "3"
+    assert Foo.test("f3") == "3"
   end
 
   test "undefined function" do

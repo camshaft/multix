@@ -6,7 +6,7 @@ defmodule Multix.Consolidator do
   Consolidation happens by changing the protocol `impl_for`
   in the abstract format to have fast lookup rules. Usually
   the list of implementations to use during consolidation
-  are retrieved with the help of `extract_impls/2`.
+  are retrieved with the help of `extract_dispatchers/2`.
 
   It returns the updated version of the protocol bytecode.
   A given bytecode or protocol implementation can be checked

@@ -24,7 +24,7 @@ defmodule Mix.Tasks.Compile.Multix do
         clean()
         paths = consolidation_paths()
         paths
-        |> Multix.Extractor.extract_protocols
+        |> Multix.Extractor.extract_dispatchers
         |> consolidate(paths, output, manifest, protocols_and_impls, opts)
 
       protocols_and_impls ->

@@ -1,37 +1,86 @@
 use Multix
 
-defdispatch Foo, for: value when value == 1 do
-  def test(_value) do
-    :ITS_ONE!
+defmodule Foo do
+  defmulti test(t)
+  defmulti test(1) do
+    :ONE
   end
-end
 
-defdispatch Foo, for: %{type: :foo} do
-  def test(%{value: value}) do
+  def not_multimethod(value) do
     value
   end
 end
 
-defdispatch Foo, for: _ do
-  def test(_) do
-    :FALLBACK
+defmodule Bar do
+  defmulti Foo.test(2) do
+    :TWO
   end
+end
+
+defmodule Baz do
+  import Foo
+  defmulti test(3) do
+    :THREE
+  end
+end
+
+defmodule Other do
+  defmulti Foo.test(%{value: 3 = num}) do
+    num / 3
+  end
+  defmulti Foo.test(%{value: num}) when is_number(num) do
+    num * 2
+  end
+  defmulti Foo.test(%{value: num}) when is_atom(num) do
+    num
+  end
+end
+
+defmodule FallThrough do
+  defmulti Foo.test(other) do
+    other
+  end
+end
+
+defmulti Foo.test(:anon) do
+  :IT_WORKED!
 end
 
 defmodule Test.Multix do
   use ExUnit.Case
 
-  test "multi dispatch" do
-    assert Foo.test(%{type: :foo, value: 123}) == 123
-    assert Foo.test(1) == :ITS_ONE!
-    assert Foo.test(:test) == :ITS_A_TEST
-    assert Foo.test(123) == :FALLBACK
+  test "consolidation" do
+    assert Multix.consolidated?(&Foo.test/1) == false
+    assert Multix.consolidated?({Foo, :test, 1}) == false
+    assert Multix.consolidated?(Foo, :test, 1) == false
   end
 
-  test "consolidation" do
-    module = Foo
-    types = Multix.Extractor.extract_impls(module, [:in_memory | :code.get_path()])
+  test "multi dispatch" do
+    Multix.inspect_multi(Foo, :test, 1)
+    |> :forms.from_abstract
+    |> IO.puts
+    assert Foo.test(1) == :ONE
+    assert Foo.test(2) == :TWO
+    assert Foo.test(3) == :THREE
+    assert Foo.test(:FOUR) == :FOUR
+    assert Foo.test(:anon) == :IT_WORKED!
+    assert Foo.test(%{value: 4}) == 8
+    assert Foo.test(%{value: :foo}) == :foo
+  end
 
-    {:ok, _} = Multix.Consolidator.consolidate(module, types)
+  test "undefined function" do
+    assert_raise UndefinedFunctionError, fn ->
+      defmulti Bar.test(:thing) do
+        :doesnt_work
+      end
+    end
+  end
+
+  test "not exposed" do
+    assert_raise ArgumentError, fn ->
+      defmulti Foo.not_multimethod(:other_thing) do
+        :doesnt_work
+      end
+    end
   end
 end

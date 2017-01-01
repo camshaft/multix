@@ -1,20 +1,20 @@
 defmodule Multix.Extractor do
   @doc """
-  Extracts all protocols from the given paths.
+  Extracts all dispatchers from the given paths.
   The paths can be either a charlist or a string. Internally
   they are worked on as charlists, so passing them as lists
   avoid extra conversion.
-  Does not load any of the protocols.
+  Does not load any of the dispatchers.
   ## Examples
-      # Get Elixir's ebin and retrieve all protocols
+      # Get Elixir's ebin and retrieve all dispatchers
       iex> path = :code.lib_dir(:elixir, :ebin)
-      iex> mods = Protocol.extract_protocols([path])
+      iex> mods = Multix.Extractor.extract_dispatchers([path])
       iex> Enumerable in mods
       true
   """
-  @spec extract_protocols([charlist | String.t]) :: [atom]
-  def extract_protocols(paths) do
-    extract_matching_by_attribute paths, 'Elixir.',
+  @spec extract_dispatchers([charlist | String.t]) :: [atom]
+  def extract_dispatchers(paths) do
+    extract_matching_by_attribute paths, 'Multix.',
       fn module, attributes ->
         case attributes[:multix] do
           [] -> module
@@ -24,44 +24,35 @@ defmodule Multix.Extractor do
   end
 
   @doc """
-  Extracts all types implemented for the given protocol from
+  Extracts all types implemented for the given dispatcher from
   the given paths.
   The paths can be either a charlist or a string. Internally
   they are worked on as charlists, so passing them as lists
   avoid extra conversion.
   Does not load any of the implementations.
   ## Examples
-      # Get Elixir's ebin and retrieve all protocols
+      # Get Elixir's ebin and retrieve all implementations
       iex> path = :code.lib_dir(:elixir, :ebin)
-      iex> mods = Protocol.extract_impls(Enumerable, [path])
+      iex> mods = Multix.Extractor.extract_impls(:"MyMod.my_fun/1", [path])
       iex> List in mods
       true
   """
   @spec extract_impls(module, [charlist | String.t]) :: [atom]
-  def extract_impls(protocol, paths) when is_atom(protocol) do
-    prefix = Atom.to_charlist(protocol) ++ '.'
-    extract_matching_by_attribute(paths, prefix, fn
+  def extract_impls(dispatch, paths) when is_atom(dispatch) do
+    extract_matching_by_attribute(paths, 'Elixir.', fn
       _mod, attributes ->
-        case attributes[:multix_dispatch] do
-          [multix: ^protocol, for: for, index: index, location: location] ->
-            {for, index, location}
-          _ ->
+        case attributes[dispatch] do
+          nil ->
             nil
+          clauses ->
+            clauses
         end
     end)
-    |> Enum.sort(fn
-      ({_, i, {f, a_l}}, {_, i, {f, b_l}}) ->
-        a_l <= b_l
-      ({_, i, {a_f, _}}, {_, i, {b_f, _}}) ->
-        a_f <= b_f
-      ({_, a_i, _}, {_, b_i, _}) ->
-        a_i >= b_i
-    end)
-    |> Enum.map(&elem(&1, 0))
   end
 
   defp extract_matching_by_attribute(paths, prefix, callback) do
-    Enum.flat_map(paths, fn
+    paths
+    |> Stream.flat_map(fn
       (:in_memory) ->
         for {module, :in_memory} <- :code.all_loaded(),
             mod = callback.(module, module.module_info(:attributes)),
@@ -70,6 +61,9 @@ defmodule Multix.Extractor do
         for file <- list_dir(path),
             mod = extract_from_file(path, file, prefix, callback),
             do: mod
+    end)
+    |> Stream.flat_map(fn(clauses) ->
+      clauses
     end)
   end
 
@@ -95,13 +89,5 @@ defmodule Multix.Extractor do
        _ ->
          nil
     end
-  end
-
-  @doc """
-  Returns `true` if the protocol was consolidated.
-  """
-  @spec consolidated?(module) :: boolean
-  def consolidated?(module) do
-    module.__multi__(:consolidated?)
   end
 end

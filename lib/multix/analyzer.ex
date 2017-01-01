@@ -33,7 +33,13 @@ defmodule Multix.Analyzer do
   defp sort_type({:var, _},     {:var, _}    ), do: throw :equal
   defp sort_type({:var, _},     _            ), do: false
   defp sort_type(_,             {:var, _}    ), do: true
-  defp sort_type([a],           [b]          ), do: sort_type(a, b)
+  defp sort_type([],            []           ), do: throw :equal
+  defp sort_type([a | a_r],     [b | b_r]    ) do
+    sort_type(a, b)
+  catch
+    :equal ->
+      sort_type(a_r, b_r)
+  end
   defp sort_type({:bin, s, a_els}, {:bin, s, b_els}) do
     a_els <= b_els
   end
@@ -118,7 +124,8 @@ defmodule Multix.Analyzer do
         l
       {_, {:literal, _} = l} ->
         l
-      # TODO handle this
+      {a, b} ->
+        {:union, a, b}
     end
   end
   defp analyze_type({:bin, _, [{:bin_element, _, {:string, _, s}, _, _}]}, _) do

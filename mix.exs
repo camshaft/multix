@@ -16,6 +16,6 @@ defmodule Multix.Mixfile do
 
   defp deps do
     [{:mix_test_watch, ">= 0.0.0", only: :dev},
-     {:forms, "~> 0.0.1", only: [:dev, :test]}]
+     {:forms, "~> 0.0.1"}]
   end
 end

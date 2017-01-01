@@ -83,7 +83,7 @@ defmodule Multix.Compiler do
     end)
   end
 
-  defp put_attribute(%{module: m}, name, value) do
+  def __put_impl__(m, name, value) do
     prev = case Module.get_attribute(m, name) do
       nil ->
         Module.register_attribute(m, name, persist: true)
@@ -98,9 +98,11 @@ defmodule Multix.Compiler do
   defp register(mfa, args, clause, body, opts, caller) do
     fun_name = format_impl_fun(mfa, args)
     {ast, args_list} = compile_clause(fun_name, args, clause, caller)
-    analysis = Multix.Analyzer.analyze(ast, caller, opts[:priority])
+    # TODO is there a cleaner way to do this?
+    {priority, _} = Code.eval_quoted(opts[:priority], [], caller)
+    analysis = Multix.Analyzer.analyze(ast, caller, priority)
     key = format_dispatch_module(mfa)
-    put_attribute(caller, key, {analysis, ast})
+    __put_impl__(caller.module, key, {analysis, ast})
     quote do
       Kernel.def unquote(fun_name)(unquote_splicing(args_list)), unquote(body)
       use Multix.Cache, key: unquote(key)

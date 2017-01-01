@@ -64,7 +64,6 @@ defmodule Test.Multix do
 
   test "multi dispatch" do
     Multix.inspect_multi(Foo, :test, 1)
-    |> :forms.from_abstract
     |> IO.puts
     assert Foo.test(1) == :ONE
     assert Foo.test(2) == :TWO

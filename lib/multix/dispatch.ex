@@ -76,6 +76,9 @@ defmodule Multix.Dispatch do
     |> execute(args)
   end
 
+  def execute(nil, _) do
+    nil
+  end
   def execute(module, data) do
     module.impl_for?(data)
   rescue
@@ -90,6 +93,8 @@ defmodule Multix.Dispatch do
       ({:clause, line, [{:tuple, _, args}], guard, body}) ->
         {:clause, line, args, guard, body}
     end)}
+    |> :forms.from_abstract()
+    |> to_string()
   end
 
   defp fetch_fun(fa_key) do
@@ -101,6 +106,9 @@ defmodule Multix.Dispatch do
     end)
   end
 
+  defp eval([], _) do
+    nil
+  end
   defp eval(clauses, module) do
     [
       {:attribute, 1, :module, module},

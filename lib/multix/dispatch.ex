@@ -33,12 +33,12 @@ defmodule Multix.Dispatch do
         @compile :debug_info
 
         Module.register_attribute(__MODULE__, :multix, persist: true)
-        @multix true
+        @multix methods
 
         def consolidated?, do: false
 
         def dispatch(fun, args) do
-          impl_for?(fun, args)
+          impl_for(fun, args)
           |> case do
             {mod, fun, args} ->
               apply(mod, fun, args)
@@ -54,8 +54,8 @@ defmodule Multix.Dispatch do
         for {f, a} <- methods do
           fa_key = :"#{__MODULE__}.#{f}/#{a}"
 
-          def impl_for?(unquote(f), args) when tuple_size(args) == unquote(a) do
-            Multix.Dispatch.impl_for?(unquote(fa_key), args)
+          def impl_for(unquote(f), args) when tuple_size(args) == unquote(a) do
+            Multix.Dispatch.impl_for(unquote(fa_key), args)
           end
 
           def inspect(unquote(f), unquote(a)) do
@@ -70,7 +70,7 @@ defmodule Multix.Dispatch do
     end
   end
 
-  def impl_for?(module, args) do
+  def impl_for(module, args) do
     module
     |> fetch_fun()
     |> execute(args)
@@ -80,7 +80,7 @@ defmodule Multix.Dispatch do
     nil
   end
   def execute(module, data) do
-    module.impl_for?(data)
+    module.impl_for(data)
   rescue
     FunctionClauseError ->
       nil
@@ -89,6 +89,10 @@ defmodule Multix.Dispatch do
   def inspect(fa_key, f, a) do
     module = fetch_fun(fa_key)
     clauses = module.module_info(:attributes)[:clauses]
+    __inspect__(f, a, clauses)
+  end
+
+  def __inspect__(f, a, clauses) do
     {:function, 1, f, a, Enum.map(clauses, fn
       ({:clause, line, [{:tuple, _, args}], guard, body}) ->
         {:clause, line, args, guard, body}
@@ -114,10 +118,10 @@ defmodule Multix.Dispatch do
   defp eval(clauses, module) do
     [
       {:attribute, 1, :module, module},
-      {:attribute, 1, :export, [{:impl_for?, 1}]},
+      {:attribute, 1, :export, [{:impl_for, 1}]},
       {:attribute, 1, :clauses, clauses},
 
-      {:function, 1, :impl_for?, 1, clauses}
+      {:function, 1, :impl_for, 1, clauses}
     ]
     |> :compile.forms()
     |> case do

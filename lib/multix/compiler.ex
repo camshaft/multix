@@ -63,7 +63,7 @@ defmodule Multix.Compiler do
 
       cond do
         __MODULE__ != m ->
-          Multix.Compiler.ensure_multix(m,f,a)
+          Multix.Compiler.ensure_multix(m,f,a,env)
         !Module.defines?(__MODULE__, {f,a}, :def) ->
           require Multix.Compiler
           Multix.Compiler.__define__(f, args)
@@ -72,10 +72,7 @@ defmodule Multix.Compiler do
           :ok
       end
 
-      key = :"Multix.#{inspect(m)}.#{f}/#{a}"
-      name = :"__#{key}_#{:erlang.phash2({args, clause})}__"
-
-      args_list = Multix.Compiler.put_impl(key, name, args, clause, opts, env)
+      {name, key, args_list} = Multix.Compiler.put_impl(m, f, a, args, clause, opts, env)
       body = Multix.Compiler.assign_blank_variables(args_list, body)
 
       use Multix.Cache, key: key
@@ -109,7 +106,7 @@ defmodule Multix.Compiler do
     end
   end
 
-  def ensure_multix(m, f, a) do
+  def ensure_multix(m, f, a, env) do
     Code.ensure_compiled(m)
 
     if !function_exported?(m,f,a) do
@@ -129,13 +126,25 @@ defmodule Multix.Compiler do
           Exception.format_mfa(m,f,a)
         } isn't exposed as a multimethod"
     end
+
+    if Multix.consolidated?(m, f, a) do
+      require Logger
+      name = Exception.format_mfa(m,f,a)
+      fl = Exception.format_file_line(env.file, env.line)
+      Logger.warn "#{fl} #{name} has already been consolidated"
+    end
   end
 
-  def put_impl(key, name, args, clause, opts, caller) do
+  def put_impl(m, f, a, args, clause, opts, caller) do
+    dispatch = :"Multix.#{inspect(m)}"
+    key = :"#{dispatch}.#{f}/#{a}"
+    name = :"__#{key}_#{:erlang.phash2({args, clause})}__"
+
     {clause, args_list} = compile_clause(name, args, clause, caller)
     analysis = Multix.Analyzer.analyze(clause, caller, opts[:priority])
     acc_attribute(caller, key, {analysis, clause})
-    args_list
+    acc_attribute(caller, :multix_impl, dispatch)
+    {name, key, args_list}
   end
 
   defp compile_clause(fun_name, args, clause, %{module: m} = caller) do
@@ -188,7 +197,7 @@ defmodule Multix.Compiler do
         prev
     end
 
-    Module.put_attribute(m, name, [value | prev])
+    Module.put_attribute(m, name, :ordsets.add_element(value, prev))
   end
 
   def assign_blank_variables(args_list, [{:do, {:__block__, meta, b}} | body]) do

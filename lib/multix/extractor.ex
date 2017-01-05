@@ -17,7 +17,7 @@ defmodule Multix.Extractor do
     extract_matching_by_attribute paths, 'Multix.',
       fn module, attributes ->
         case attributes[:multix] do
-          [] -> module
+          methods when is_list(methods) and length(methods) > 0 -> [module]
           _ -> nil
         end
       end

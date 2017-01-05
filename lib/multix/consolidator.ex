@@ -1,52 +1,46 @@
 defmodule Multix.Consolidator do
   @doc """
-  Receives a protocol and a list of implementations and
-  consolidates the given protocol.
+  Receives a dispatcher and a list of implementations and
+  consolidates the given dispatcher.
 
-  Consolidation happens by changing the protocol `impl_for`
+  Consolidation happens by changing the dispatcher `impl_for`
   in the abstract format to have fast lookup rules. Usually
   the list of implementations to use during consolidation
   are retrieved with the help of `extract_dispatchers/2`.
 
-  It returns the updated version of the protocol bytecode.
-  A given bytecode or protocol implementation can be checked
-  to be consolidated or not by analyzing the protocol
+  It returns the updated version of the dispatcher bytecode.
+  A given bytecode or dispatcher implementation can be checked
+  to be consolidated or not by analyzing the dispatcher
   attribute:
 
-      Protocol.consolidated?(Enumerable)
+       Multix.consolidated?(MyModule, :my_fun, 1)
 
   If the first element of the tuple is `true`, it means
-  the protocol was consolidated.
+  the dispatcher was consolidated.
 
-  This function does not load the protocol at any point
+  This function does not load the dispatcher at any point
   nor loads the new bytecode for the compiled module.
   However each implementation must be available and
   it will be loaded.
   """
   @spec consolidate(module, [module]) ::
     {:ok, binary} |
-    {:error, :not_a_protocol} |
+    {:error, :not_a_dispatcher} |
     {:error, :no_beam_info}
-  def consolidate(protocol, types) when is_atom(protocol) do
-    with {:ok, info} <- beam_protocol(protocol),
-         {:ok, code, docs} <- change_debug_info(info, types),
-         do: compile(code, types, docs)
+  def consolidate(dispatcher, paths) when is_atom(dispatcher) do
+    with {:ok, info} <- beam_dispatcher(dispatcher),
+         {:ok, code} <- change_impl_for(info, paths),
+         do: compile(code)
   end
 
-  @docs_chunk 'ExDc'
-
-  defp beam_protocol(protocol) do
-    chunk_ids = [:abstract_code, :attributes, @docs_chunk]
-    opts = [:allow_missing_chunks]
-    case :beam_lib.chunks(beam_file(protocol), chunk_ids, opts) do
-      {:ok, {^protocol, [{:abstract_code, {_raw, abstract_code}},
-                         {:attributes, attributes},
-                         {@docs_chunk, docs}]}} ->
+  defp beam_dispatcher(dispatcher) do
+    case :beam_lib.chunks(beam_file(dispatcher), [:attributes]) do
+      {:ok, {^dispatcher, [{:attributes, attributes}]}} ->
         case attributes[:multix] do
-          [] ->
-            {:ok, {protocol, abstract_code, docs}}
+          methods when is_list(methods) and length(methods) > 0 ->
+            {:ok, {dispatcher, methods}}
           _ ->
-            {:error, :not_a_protocol}
+            {:error, :not_a_dispatcher}
         end
       _ ->
         {:error, :no_beam_info}
@@ -60,88 +54,66 @@ defmodule Multix.Consolidator do
     end
   end
 
-  # Change the debug information to the optimized
-  # impl_for/1 dispatch version.
-  defp change_debug_info({protocol, code, docs}, types) do
-    case change_impl_for(code, protocol, types, false, []) do
-      {:ok, ret} -> {:ok, ret, docs}
-      other      -> other
-    end
+  defp change_impl_for({dispatcher, methods}, paths) do
+    {impls, dispatches, inspects} =
+      Enum.reduce(methods, {[], [], []}, fn({f, a}, {impls, dispatches, inspects}) ->
+        key = :"#{dispatcher}.#{f}/#{a}"
+
+        clauses = key
+        |> Multix.Extractor.extract_impls(paths)
+        |> Multix.Analyzer.sort(key)
+        |> Enum.to_list()
+
+        str = Multix.Dispatch.__inspect__(f, a, clauses) |> to_charlist()
+
+        inspect = {:clause, 0, [{:atom, 0, f}, {:integer, 0, a}], [], [
+          {:bin, 0, [{:bin_element, 0, {:string, 0, str}, :default, :default}]}
+        ]}
+
+        {i, d} = Enum.reduce(clauses, {impls, dispatches}, fn
+          ({:clause, line, [tuple], guard, body}, {impls, dispatches}) ->
+            f = {:atom, line, f}
+            impl = {:clause, line, [f, tuple], guard, body}
+            dispatch = {:clause, line, [f, tuple], guard, call_impl(body)}
+            {[impl | impls], [dispatch | dispatches]}
+        end)
+
+        {i, d, [inspect | inspects]}
+      end)
+
+    ast = [
+      {:attribute, 1, :module, dispatcher},
+      {:attribute, 1, :export, [
+        {:consolidated?, 0},
+        {:dispatch, 2},
+        {:impl_for, 2},
+        {:inspect, 2}
+      ]},
+
+      {:function, 1, :consolidated?, 0, [{:clause, 0, [], [], [{:atom, 1, true}]}]},
+      {:function, 1, :dispatch, 2, :lists.reverse(dispatches)},
+      {:function, 1, :impl_for, 2, :lists.reverse(impls)},
+      {:function, 1, :inspect, 2, :lists.reverse(inspects)},
+    ]
+
+    {:ok, ast}
   end
 
-  defp change_impl_for([], protocol, _types, is_protocol, acc) do
-    if is_protocol do
-      {:ok, {protocol, Enum.reverse(acc)}}
-    else
-      {:error, :not_a_protocol}
-    end
+  defp call_impl([{:tuple, line, [m,f,a]}]) do
+    [{:call, line, {:remote, line, m, f}, cons_to_list(a)}]
   end
-  defp change_impl_for([{:function, line, :__multix__, 1, clauses} | t], protocol, types, _, acc) do
-    clauses = :lists.map(fn
-      {:clause, l, [{:atom, _, :consolidated?}], [], [{:atom, _, _}]} ->
-        {:clause, l, [{:atom, 0, :consolidated?}], [], [{:atom, 0, true}]}
-      {:clause, _, _, _, _} = c ->
-        c
-    end, clauses)
 
-    acc = [{:function, line, :__multix__, 1, clauses} | acc]
-
-    change_impl_for(t, protocol, types, true, acc)
+  defp cons_to_list({:nil, _}) do
+    []
   end
-  defp change_impl_for([{:function, line, :impl_for, 1, _} | t], protocol, types, is_protocol, acc) do
-    clauses = types
-    |> Stream.with_index()
-    |> Enum.map(fn({type, line}) ->
-      type.__multix_info__().erl_clause
-      |> put_elem(1, line)
-    end)
-
-    acc = [{:function, line, :impl_for, 1, clauses} | acc]
-
-    change_impl_for(t, protocol, types, is_protocol, acc)
-  end
-  defp change_impl_for([h | t], protocol, types, is_protocol, acc) do
-    change_impl_for(t, protocol, types, is_protocol, [h | acc])
+  defp cons_to_list({:cons, head, tail}) do
+    [head | cons_to_list(tail)]
   end
 
   # Finally compile the module and emit its bytecode.
-  defp compile({protocol, code}, types, docs) do
+  defp compile(code) do
     opts = if Code.compiler_options[:debug_info], do: [:debug_info], else: []
-    {:ok, ^protocol, binary, warnings} = :compile.forms(code, [:return | opts])
-    if length(warnings) > 0, do: format_warning(protocol, warnings, types)
-    {:ok,
-      case docs do
-        :missing_chunk -> binary
-        _ -> :elixir_module.add_beam_chunk(binary, @docs_chunk, docs)
-      end}
-  end
-
-  defp format_warning(name, [{_file, warnings}], types) do
-    lines = warnings
-    |> Stream.map(fn({idx, _, _}) ->
-      {idx, true}
-    end)
-    |> Enum.into(%{})
-
-    patterns = types
-    |> Stream.with_index()
-    |> Stream.map(fn({type, idx}) ->
-      prefix = if lines[idx], do: [:red, ">"], else: " "
-      %{pattern_s: pattern_s, file: file, line: line, index: index} = type.__multix_info__
-      file =  Path.relative_to_cwd(file)
-      location = Exception.format_file_line(file, line)
-
-      ["  ", location, " ", inspect(index: index), "\n  ", prefix, " ", pattern_s, "  "]
-      |> IO.ANSI.format()
-    end)
-    |> Enum.join("\n")
-
-    :elixir_errors.warn("""
-    #{inspect(name)} has unreachable dispatch patterns:
-
-    #{patterns}
-
-      This can be fixed by reordering the dispatches with the index option.
-    """ |> String.trim)
+    {:ok, _mod, binary, _warnings} = :compile.forms(code, [:return | opts])
+    {:ok, binary}
   end
 end

@@ -1,7 +1,7 @@
 use Multix
 
 defmodule Foo do
-  defmulti test(t)
+  defmulti test(t \\ :DEFAULT)
   defmulti test(1) do
     :ONE
   end
@@ -87,6 +87,7 @@ defmodule Test.Multix do
   test "multi dispatch" do
     Multix.inspect_multi(Foo, :test, 1)
     # |> IO.puts
+    assert Foo.test() == :DEFAULT
     assert Foo.test(1) == :ONE
     assert Foo.test(2) == :TWO
     assert Foo.test(3) == :THREE

@@ -7,6 +7,9 @@ defmodule Multix.Compiler do
       mfa: {:quote, [], [[do: mfa]]}
     ], context: __MODULE__.DEF do
       {name, _, args} = mfa
+
+      def unquote(name)(unquote_splicing(args))
+
       {args, arity} =
         args
         |> Stream.with_index()
@@ -17,8 +20,6 @@ defmodule Multix.Compiler do
             {Macro.var(:"arg#{idx}", nil), idx}
         end)
       arity = arity + 1
-
-      def unquote(name)(unquote_splicing(args))
 
       use Elixir.Multix.Dispatch, function: name, arity: arity
 

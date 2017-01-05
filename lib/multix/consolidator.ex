@@ -1,4 +1,6 @@
 defmodule Multix.Consolidator do
+  @moduledoc false
+
   @doc """
   Receives a dispatcher and a list of implementations and
   consolidates the given dispatcher.

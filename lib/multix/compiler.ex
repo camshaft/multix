@@ -1,4 +1,6 @@
 defmodule Multix.Compiler do
+  @moduledoc false
+
   def defmulti({_, _, []}) do
     raise ArgumentError, "Cannot define 0 arity multimethods"
   end
@@ -127,7 +129,7 @@ defmodule Multix.Compiler do
         } isn't exposed as a multimethod"
     end
 
-    if Multix.consolidated?(m, f, a) do
+    if Multix.consolidated?(m) do
       require Logger
       name = Exception.format_mfa(m,f,a)
       fl = Exception.format_file_line(env.file, env.line)

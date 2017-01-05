@@ -1,5 +1,5 @@
 defmodule Multix.Cache do
-  @table __MODULE__
+  @moduledoc false
 
   defmacro __using__(opts) do
     quote bind_quoted: [opts: opts] do

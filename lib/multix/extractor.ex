@@ -1,4 +1,6 @@
 defmodule Multix.Extractor do
+  @moduledoc false
+
   @doc """
   Extracts all dispatchers from the given paths.
   The paths can be either a charlist or a string. Internally

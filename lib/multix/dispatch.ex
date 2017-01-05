@@ -1,4 +1,6 @@
 defmodule Multix.Dispatch do
+  @moduledoc false
+
   defmodule Exception do
     defexception [:module, :function, :arity]
 

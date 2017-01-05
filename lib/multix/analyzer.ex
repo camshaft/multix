@@ -1,4 +1,6 @@
 defmodule Multix.Analyzer do
+  @moduledoc false
+
   def sort(impls, _module) do
     impls
     |> Enum.sort(&sort_analysis/2)

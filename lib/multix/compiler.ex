@@ -10,6 +10,21 @@ defmodule Multix.Compiler do
 
       def unquote(name)(unquote_splicing(args))
 
+      require Multix.Compiler
+      Multix.Compiler.__define__(name, args)
+    end
+  end
+
+  def defmulti(name, body, opts) do
+    compile(name, body, opts)
+  end
+
+  defmacro __define__(name, args) do
+    quote bind_quoted: [
+      name: name,
+      args: args
+    ], context: __MODULE__.DEFINE do
+
       {args, arity} =
         args
         |> Stream.with_index()
@@ -29,10 +44,6 @@ defmodule Multix.Compiler do
 
       def __multix__({unquote(name), unquote(arity)}), do: true
     end
-  end
-
-  def defmulti(name, body, opts) do
-    compile(name, body, opts)
   end
 
   defp compile({:when, _meta, [fun, clause]}, body, opts) do
@@ -58,7 +69,8 @@ defmodule Multix.Compiler do
         __MODULE__ != m ->
           Multix.Compiler.ensure_multix(m,f,a)
         !Module.defines?(__MODULE__, {f,a}, :def) ->
-          Multix.defmulti(unquote({f, [], args}))
+          require Multix.Compiler
+          Multix.Compiler.__define__(f, args)
         true ->
           # same module; already defined
           :ok

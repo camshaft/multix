@@ -15,10 +15,6 @@ defmodule Multix.Compiler do
     end
   end
 
-  def defmulti(name, body, opts) do
-    compile(name, body, opts)
-  end
-
   defmacro __define__(name, args) do
     quote bind_quoted: [
       name: name,
@@ -46,10 +42,10 @@ defmodule Multix.Compiler do
     end
   end
 
-  defp compile({:when, _meta, [fun, clause]}, body, opts) do
+  def defmulti({:when, _meta, [fun, clause]}, body, opts) do
     compile(fun, clause, body, opts)
   end
-  defp compile(fun, body, opts) do
+  def defmulti(fun, body, opts) do
     compile(fun, true, body, opts)
   end
 

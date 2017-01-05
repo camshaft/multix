@@ -125,4 +125,16 @@ defmodule Test.Multix do
       end
     end
   end
+
+  test "cache purging" do
+    defmodule T do
+      defmulti foo(a)
+    end
+
+    defmulti T.foo(2), do: 4
+    assert T.foo(2) == 4
+
+    defmulti T.foo(3), do: 6
+    assert T.foo(3) == 6
+  end
 end

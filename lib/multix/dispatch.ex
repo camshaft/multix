@@ -98,12 +98,14 @@ defmodule Multix.Dispatch do
   end
 
   defp fetch_fun(fa_key) do
-    Multix.Cache.get_lazy(fa_key, fn ->
+    if !Code.ensure_compiled?(fa_key) do
       fa_key
       |> Multix.Extractor.extract_impls([:in_memory | :code.get_path])
       |> Multix.Analyzer.sort(fa_key)
       |> eval(fa_key)
-    end)
+    else
+      fa_key
+    end
   end
 
   defp eval([], _) do

@@ -23,7 +23,7 @@ defmodule Multix.Analyzer do
   defp sort_analysis({{_, a_p, _, _}, _},
                      {{_, b_p, _, _}, _}) do
     # Sort prioritized patterns
-    a_p >= b_p
+    a_p <= b_p
   end
 
   defp sort_type({:literal, a}, {:literal, a}), do: throw :equal

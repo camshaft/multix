@@ -186,6 +186,7 @@ defmodule Multix.Compiler do
         {other, acc}
     end)
     |> elem(1)
+    |> :lists.reverse()
   end
 
   defp acc_attribute(%{module: m}, name, value) do

@@ -106,7 +106,7 @@ defmodule Multix.Consolidator do
   defp cons_to_list({:nil, _}) do
     []
   end
-  defp cons_to_list({:cons, head, tail}) do
+  defp cons_to_list({:cons, _, head, tail}) do
     [head | cons_to_list(tail)]
   end
 

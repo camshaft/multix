@@ -168,8 +168,15 @@ defmodule Multix.Compiler do
     Macro.prewalk(args, [], fn
       ({name, _, _} = other, acc) when name in [:__MODULE__, :__ENV__] ->
         {other, acc}
+      ({:_, _, _} = var, acc) ->
+        {var, acc}
       ({name, _, context} = var, acc) when is_atom(name) and is_atom(context) ->
-        {var, [var | acc]}
+        case to_string(name) do
+          "_" <> _ ->
+            {var, acc}
+          _ ->
+            {var, [var | acc]}
+        end
       (other, acc) ->
         {other, acc}
     end)

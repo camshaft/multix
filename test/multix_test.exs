@@ -12,7 +12,7 @@ defmodule Foo do
 end
 
 defmodule Bar do
-  defmulti Foo.test(2) do
+  defmulti Foo.test(2 = _) do
     :TWO
   end
 end
@@ -20,7 +20,7 @@ end
 defmodule Baz do
   alias Foo, as: F
   import Foo
-  defmulti test(3) do
+  defmulti test(3 = _three) do
     :THREE
   end
 

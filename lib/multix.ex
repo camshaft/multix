@@ -11,8 +11,8 @@ defmodule Multix do
         define_anonymous(name, [], caller, quote do
           defmulti unquote(name)
         end)
-      caller ->
-        __MODULE__.Compiler.defmulti(name, caller)
+      _ ->
+        __MODULE__.Compiler.defmulti(name)
     end
   end
 
@@ -22,8 +22,8 @@ defmodule Multix do
         define_anonymous(name, [], caller, quote do
           defmulti unquote(name), unquote(opts), unquote(body)
         end)
-      caller ->
-        __MODULE__.Compiler.defmulti(name, body, opts, caller)
+      _ ->
+        __MODULE__.Compiler.defmulti(name, body, opts)
     end
   end
 

@@ -1,8 +1,9 @@
 defmodule Multix.Cache do
   @table __MODULE__
 
-  defmacro __using__([key: key]) do
-    quote do
+  defmacro __using__(opts) do
+    quote bind_quoted: [opts: opts] do
+      [key: key] = opts
       if Module.get_attribute(__MODULE__, :on_load) == [] do
         @on_load :__multix_on_load__
         def __multix_on_load__(), do: :ok
@@ -10,7 +11,7 @@ defmodule Multix.Cache do
       end
 
       # we only clear on the first one defined
-      if match?([_], Module.get_attribute(__MODULE__, unquote(key))) do
+      if match?([_], Module.get_attribute(__MODULE__, key)) do
         def __multix_on_load__() do
           Multix.Cache.clear(unquote(key))
           super()

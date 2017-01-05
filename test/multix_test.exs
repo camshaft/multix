@@ -18,9 +18,14 @@ defmodule Bar do
 end
 
 defmodule Baz do
+  alias Foo, as: F
   import Foo
   defmulti test(3) do
     :THREE
+  end
+
+  defmulti F.test(:alias) do
+    :ALIAS
   end
 end
 
@@ -53,6 +58,23 @@ defmulti Foo.test("f" <> oo), do: oo
 defmulti Foo.test("ba" <> r), do: r
 defmulti Foo.test("fo" <> o), do: o
 
+defmodule MyStruct do
+  defstruct [:value]
+
+  defmulti Foo.test(%__MODULE__{value: value}) do
+    value
+  end
+end
+
+defmodule UnquoteTest do
+  for value <- [:meta_1, :meta_2] do
+    defmulti Foo.test(unquote(value)), do: true
+  end
+
+  method = :test
+  defmulti Foo.unquote(method)(:meta_3), do: false
+end
+
 defmodule Test.Multix do
   use ExUnit.Case
 
@@ -64,7 +86,7 @@ defmodule Test.Multix do
 
   test "multi dispatch" do
     Multix.inspect_multi(Foo, :test, 1)
-    |> IO.puts
+    # |> IO.puts
     assert Foo.test(1) == :ONE
     assert Foo.test(2) == :TWO
     assert Foo.test(3) == :THREE
@@ -79,6 +101,12 @@ defmodule Test.Multix do
     assert Foo.test("fo2") == "2"
     assert Foo.test("b3") == "3"
     assert Foo.test("f3") == "3"
+
+    assert Foo.test(:alias) == :ALIAS
+    assert Foo.test(%MyStruct{value: :THING}) == :THING
+    assert Foo.test(:meta_1) == true
+    assert Foo.test(:meta_2) == true
+    assert Foo.test(:meta_3) == false
   end
 
   test "undefined function" do

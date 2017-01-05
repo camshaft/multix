@@ -8,7 +8,7 @@ defmodule Multix.Dispatch do
   end
 
   defmacro __using__(opts) do
-    quote do
+    quote bind_quoted: [opts: opts] do
       if !Module.get_attribute(__MODULE__, :multix_dispatch) do
         @multix_dispatch :"Multix.#{inspect(__MODULE__)}"
         Module.register_attribute(__MODULE__, :multix_methods, accumulate: true)
@@ -17,10 +17,10 @@ defmodule Multix.Dispatch do
           @multix_dispatch
         end
 
-        @before_compile unquote(__MODULE__)
+        @before_compile Multix.Dispatch
       end
 
-      @multix_methods unquote({:{}, [], [opts[:function], opts[:arity]]})
+      @multix_methods {opts[:function], opts[:arity]}
     end
   end
 

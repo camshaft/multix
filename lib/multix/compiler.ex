@@ -1,120 +1,132 @@
 defmodule Multix.Compiler do
-  def defmulti({_, _, args} = name, caller) do
-    name
-    |> compile_name(caller)
-    |> init(args, caller)
+  def defmulti({_, _, []}) do
+    raise ArgumentError, "Cannot define 0 arity multimethods"
   end
+  def defmulti(mfa) do
+    quote bind_quoted: [
+      mfa: {:quote, [], [[do: mfa]]}
+    ], context: __MODULE__.DEF do
+      {name, _, args} = mfa
+      {args, arity} =
+        args
+        |> Stream.with_index()
+        |> Enum.map_reduce(0, fn
+          ({{name, _, nil} = var, idx}, _) when is_atom(name) ->
+            {var, idx}
+          ({_, idx}, _) ->
+            {Macro.var(:"arg#{idx}", nil), idx}
+        end)
+      arity = arity + 1
 
-  def defmulti(name, body, opts, caller) do
-    compile(name, body, opts, caller)
-  end
+      def unquote(name)(unquote_splicing(args))
 
-  defp compile({:when, _meta, [fun, clause]}, body, opts, caller) do
-    compile(fun, clause, body, opts, caller)
-  end
-  defp compile(fun, body, opts, caller) do
-    compile(fun, true, body, opts, caller)
-  end
+      use Elixir.Multix.Dispatch, function: name, arity: arity
 
-  defp compile({_, _, args} = fun, clause, body, opts, caller) do
-    mfa = compile_name(fun, caller)
-    {:__block__, [], [
-      init(mfa, args, caller),
-      register(mfa, args, clause, body, opts, caller)
-    ]}
-  end
-
-  defp init({m, f, a}, args, %{module: m}) do
-    fa = {f,a}
-    dispatch_args = Enum.map(1..a, &Macro.var(:"@arg#{&1}", nil))
-
-    quote do
-      if !Module.defines?(__MODULE__, unquote(fa), :def) do
-        Kernel.def unquote(f)(unquote_splicing(init_args(args)))
-
-        use Elixir.Multix.Dispatch, unquote(module: m, function: f, arity: a)
-
-        Kernel.def unquote(f)(unquote_splicing(dispatch_args)) do
-          @multix_dispatch.dispatch(unquote(f), unquote({:{}, [], dispatch_args}))
-        end
-
-        Kernel.def __multix__(unquote(f), unquote(a)), do: true
-      end
-    end
-  end
-  defp init({m, f, a}, _, _) do
-    quote do
-      require unquote(m)
-
-      # first we check that it's defined
-      if !function_exported?(unquote_splicing([m,f,a])) do
-        raise UndefinedFunctionError, [
-          module: unquote(m),
-          function: unquote(f),
-          arity: unquote(a),
-          reason: "required for multimethod extension"
-        ]
+      def unquote(name)(unquote_splicing(args)) do
+        @multix_dispatch.dispatch(unquote(name), unquote({:{}, [], args}))
       end
 
-      # now we make sure that it's exposed
-      try do
-        unquote(m).__multix__(unquote(f), unquote(a))
-      rescue
-        _ ->
-          raise ArgumentError, unquote("#{
-            Exception.format_mfa(m,f,a)
-          } isn't exposed as a multimethod")
+      def __multix__({unquote(name), unquote(arity)}), do: true
+    end
+  end
+
+  def defmulti(name, body, opts) do
+    compile(name, body, opts)
+  end
+
+  defp compile({:when, _meta, [fun, clause]}, body, opts) do
+    compile(fun, clause, body, opts)
+  end
+  defp compile(fun, body, opts) do
+    compile(fun, true, body, opts)
+  end
+
+  defp compile(mfa, clause, body, opts) do
+    quote bind_quoted: [
+      mfa: {:quote, [], [[do: mfa]]},
+      local?: mfa |> elem(0) |> is_atom(),
+      clause: {:quote, [], [[do: clause]]},
+      body: {:quote, [], [[do: body]]},
+      opts: {:quote, [], [[do: opts]]}
+    ], context: __MODULE__.DEFMULTI do
+      env = __ENV__
+      {m,f,args,a} = Multix.Compiler.resolve_name(mfa, env)
+      m = Multix.Compiler.normalize_name(m, f, a, local?, env)
+
+      cond do
+        __MODULE__ != m ->
+          Multix.Compiler.ensure_multix(m,f,a)
+        !Module.defines?(__MODULE__, {f,a}, :def) ->
+          Multix.defmulti(unquote({f, [], args}))
+        true ->
+          # same module; already defined
+          :ok
       end
 
-      nil
+      key = :"Multix.#{inspect(m)}.#{f}/#{a}"
+      name = :"__#{key}_#{:erlang.phash2({args, clause})}__"
+
+      args_list = Multix.Compiler.put_impl(key, name, args, clause, opts, env)
+      body = Multix.Compiler.assign_blank_variables(args_list, body)
+
+      use Multix.Cache, key: key
+      def unquote(name)(unquote_splicing(args_list)), unquote(body)
     end
   end
 
-  defp init_args(args) do
-    args
-    |> Stream.with_index()
-    |> Enum.map(fn
-      ({{name, _, nil} = arg, _}) when is_atom(name) ->
-        arg
-      ({{:\\, _, _} = arg, _}) ->
-        arg
-      ({_other, i}) ->
-        Macro.var(:"@arg#{i}", nil)
-    end)
+  def resolve_name({{:., _, [module, fun]}, _, args}, env) do
+    {Macro.expand(module, env), fun, args, length(args)}
+  end
+  def resolve_name({name, _, args}, %{module: module}) when is_atom(name) do
+    {module, name, args, length(args)}
   end
 
-  def __put_impl__(m, name, value) do
-    prev = case Module.get_attribute(m, name) do
-      nil ->
-        Module.register_attribute(m, name, persist: true)
-        []
-      prev ->
-        prev
-    end
-
-    Module.put_attribute(m, name, [value | prev])
+  def normalize_name(module, _function, _arity, false, _caller) do
+    module
+  end
+  def normalize_name(_module, function, arity, true, caller) do
+    caller.functions
+    |> resolve_import({function, arity}, caller.module)
   end
 
-  defp register(mfa, args, clause, body, opts, caller) do
-    fun_name = format_impl_fun(mfa, args)
-    {ast, args_list} = compile_clause(fun_name, args, clause, caller)
-    # TODO is there a cleaner way to do this?
-    {priority, _} = Code.eval_quoted(opts[:priority], [], caller)
-    analysis = Multix.Analyzer.analyze(ast, caller, priority)
-    key = format_dispatch_module(mfa)
-    __put_impl__(caller.module, key, {analysis, ast})
-    quote do
-      Kernel.def unquote(fun_name)(unquote_splicing(args_list)), unquote(body)
-      use Multix.Cache, key: unquote(key)
+  defp resolve_import([], _fa, m) do
+    m
+  end
+  defp resolve_import([{module, funs} | rest], fa, m) do
+    if Enum.any?(funs, &(&1 == fa)) do
+      module
+    else
+      resolve_import(rest, fa, m)
     end
   end
 
-  defp format_dispatch_module({m,f,a}) do
-    :"Multix.#{inspect(m)}.#{f}/#{a}"
+  def ensure_multix(m, f, a) do
+    Code.ensure_compiled(m)
+
+    if !function_exported?(m,f,a) do
+      raise UndefinedFunctionError, [
+        module: m,
+        function: f,
+        arity: a,
+        reason: "required for multimethod extension"
+      ]
+    end
+
+    try do
+      m.__multix__({f, a})
+    rescue
+      _ ->
+        raise ArgumentError, "#{
+          Exception.format_mfa(m,f,a)
+        } isn't exposed as a multimethod"
+    end
   end
 
-  defp format_impl_fun(mfa, args) do
-    :"__#{format_dispatch_module(mfa)}_#{:erlang.phash2(args)}__"
+  def put_impl(key, name, args, clause, opts, caller) do
+    {clause, args_list} = compile_clause(name, args, clause, caller)
+    analysis = Multix.Analyzer.analyze(clause, caller, opts[:priority])
+    acc_attribute(caller, key, {analysis, clause})
+    args_list
   end
 
   defp compile_clause(fun_name, args, clause, %{module: m} = caller) do
@@ -141,7 +153,9 @@ defmodule Multix.Compiler do
 
   defp extract_args(args) do
     Macro.prewalk(args, [], fn
-      ({name, _, nil} = var, acc) when is_atom(name) ->
+      ({name, _, _} = other, acc) when name in [:__MODULE__, :__ENV__] ->
+        {other, acc}
+      ({name, _, context} = var, acc) when is_atom(name) and is_atom(context) ->
         {var, [var | acc]}
       (other, acc) ->
         {other, acc}
@@ -149,24 +163,25 @@ defmodule Multix.Compiler do
     |> elem(1)
   end
 
-  defp compile_name(ast, %{functions: funs} = caller) do
-    {name, meta, args} = Macro.expand_once(ast, caller)
-    mfa = resolve_import(funs, {name, length(args)}, caller)
-    {mfa, _} = Code.eval_quoted({:{}, meta, mfa}, [], caller)
-    mfa
+  defp acc_attribute(%{module: m}, name, value) do
+    prev = case Module.get_attribute(m, name) do
+      nil ->
+        Module.register_attribute(m, name, persist: true)
+        []
+      prev ->
+        prev
+    end
+
+    Module.put_attribute(m, name, [value | prev])
   end
 
-  defp resolve_import(_, {{:., _, [module, fun]}, arity}, _) do
-    [module, fun, arity]
+  def assign_blank_variables(args_list, [{:do, {:__block__, meta, b}} | body]) do
+    b = Enum.reduce(args_list, b, fn(arg, acc) ->
+      [quote(do: _ = unquote(arg)) | acc]
+    end)
+    [{:do, {:__block__, meta, b}} | body]
   end
-  defp resolve_import([], {f,a}, %{module: m}) do
-    [m,f,a]
-  end
-  defp resolve_import([{module, funs} | rest], {fun, arity} = fa, caller) when is_list(funs) do
-    if Enum.any?(funs, &(&1 == {fun, arity})) do
-      [module, fun, arity]
-    else
-      resolve_import(rest, fa, caller)
-    end
+  def assign_blank_variables(args_list, [{:do, b} | rest]) do
+    assign_blank_variables(args_list, [{:do, {:__block__, [], [b]}} | rest])
   end
 end

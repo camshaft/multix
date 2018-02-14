@@ -16,7 +16,7 @@ defmodule Multix do
       defmodule Math.Integer do
         use Multix
 
-        defmulti add(a, b) when is_integer(a) and is_integer(b) do
+        defmulti Math.add(a, b) when is_integer(a) and is_integer(b) do
           a + b
         end
       end
@@ -52,24 +52,8 @@ defmodule Multix do
 
   defmacro __using__(_) do
     quote do
-      import Multix, only: [defmulti: 1, defmulti: 2, defmulti: 3]
-    end
-  end
-
-  @doc """
-  Defines a multidispatch function.
-
-  `defmulti/1` defines a empty function, similar to `Kernel.def/2`
-  """
-
-  defmacro defmulti(name) do
-    case __CALLER__ do
-      %{module: mod, function: fun} = caller when is_nil(mod) or not is_nil(fun) ->
-        define_anonymous(name, [], caller, quote do
-          defmulti unquote(name)
-        end)
-      _ ->
-        __MODULE__.Compiler.defmulti(name)
+      import Multix, only: [defmulti: 2, defmulti: 3]
+      @compile :debug_info
     end
   end
 
@@ -78,38 +62,7 @@ defmodule Multix do
   """
 
   defmacro defmulti(name, opts \\ [], body) do
-    case __CALLER__ do
-      %{module: mod, function: fun} = caller when is_nil(mod) or not is_nil(fun) ->
-        define_anonymous(name, [], caller, quote do
-          defmulti unquote(name), unquote(opts), unquote(body)
-        end)
-      _ ->
-        __MODULE__.Compiler.defmulti(name, body, opts)
-    end
-  end
-
-  defp define_anonymous(name, opts, caller, body) do
-    id = :erlang.phash2({name, opts, body})
-    mod = Module.concat(["Multix", "Anonymous#{id}"])
-    quote do
-      defmodule unquote(mod) do
-        use Multix
-        unquote(body)
-      end
-      unquote(mod)
-    end
-    |> maybe_iex(caller)
-  end
-
-  defp maybe_iex(ast, %{module: nil, function: nil, file: "iex"} = caller) do
-    {mod, _} = Code.eval_quoted(ast, [], caller)
-    quote do
-      import unquote(mod)
-      unquote(mod)
-    end
-  end
-  defp maybe_iex(ast, _) do
-    ast
+    __MODULE__.Compiler.defmulti(name, body, opts)
   end
 
   @doc """
@@ -117,10 +70,11 @@ defmodule Multix do
   """
 
   def consolidated?(module) when is_atom(module) do
-    module.__multix_dispatch__.consolidated?()
+    function_exported?(module, :__multix__, 1)
   end
+
   def consolidated?(mfa) do
-    {m,_f,_a} = normalize_method(mfa)
+    {m, _f, _a} = normalize_method(mfa)
     consolidated?(m)
   end
 
@@ -150,6 +104,7 @@ defmodule Multix do
   def impl_for(module, function, arity, args) when is_list(args) do
     impl_for(module, function, arity, :erlang.list_to_tuple(args))
   end
+
   def impl_for(module, function, arity, args) when is_tuple(args) and arity == tuple_size(args) do
     module.__multix_dispatch__.impl_for(function, args)
   end
@@ -159,7 +114,7 @@ defmodule Multix do
   """
 
   def inspect_multi(mfa) do
-    {m,f,a} = normalize_method(mfa)
+    {m, f, a} = normalize_method(mfa)
     inspect_multi(m, f, a)
   end
 
@@ -174,12 +129,22 @@ defmodule Multix do
   defp normalize_method({m, f, a}) do
     {m, f, a}
   end
+
   defp normalize_method(fun) when is_function(fun) do
     case :erlang.fun_info(fun) do
       [module: m, name: f, arity: a, env: _, type: :external] ->
-        {m,f,a}
+        {m, f, a}
+
       _ ->
         raise ArgumentError, "#{inspect(fun)} not a multimethod"
     end
+  end
+end
+
+defmodule Bar do
+  use Multix
+
+  defmulti Nile.expand(stream, fun) when is_tuple(stream) do
+    true
   end
 end

@@ -1,121 +1,189 @@
 defmodule Multix.Consolidator do
   @moduledoc false
 
-  @doc """
-  Receives a dispatcher and a list of implementations and
-  consolidates the given dispatcher.
+  @concurrency 4
 
-  Consolidation happens by changing the dispatcher `impl_for`
-  in the abstract format to have fast lookup rules. Usually
-  the list of implementations to use during consolidation
-  are retrieved with the help of `extract_dispatchers/2`.
+  @spec consolidate([term]) ::
+          {:ok, binary}
+          | {:error, :not_a_dispatcher}
+          | {:error, :no_beam_info}
+  def consolidate(impls) do
+    {beams, targets} =
+      impls
+      |> Nile.pmap(
+        fn {impl, targets} ->
+          case load_code(impl) do
+            {:ok, code} ->
+              {targets, code} = modify_impl(targets, code)
+              {targets, save_code(code)}
 
-  It returns the updated version of the dispatcher bytecode.
-  A given bytecode or dispatcher implementation can be checked
-  to be consolidated or not by analyzing the dispatcher
-  attribute:
+            error ->
+              {[], error}
+          end
+        end,
+        concurrency: @concurrency
+      )
+      |> Enum.map_reduce(%{}, fn {targets, code}, acc ->
+        acc =
+          Enum.reduce(targets, acc, fn {m, fa, clause}, acc ->
+            mod = Map.get(acc, m, %{})
+            clauses = Map.get(mod, fa, [])
+            clauses = [clause | clauses]
+            mod = Map.put(mod, fa, clauses)
+            Map.put(acc, m, mod)
+          end)
 
-       Multix.consolidated?(MyModule, :my_fun, 1)
+        {code, acc}
+      end)
 
-  If the first element of the tuple is `true`, it means
-  the dispatcher was consolidated.
+    targets
+    |> Nile.pmap(fn {target, impls} ->
+      case load_code(target) do
+        {:ok, code} ->
+          code = modify_target(impls, code)
+          save_code(code)
 
-  This function does not load the dispatcher at any point
-  nor loads the new bytecode for the compiled module.
-  However each implementation must be available and
-  it will be loaded.
-  """
-  @spec consolidate(module, [module]) ::
-    {:ok, binary} |
-    {:error, :not_a_dispatcher} |
-    {:error, :no_beam_info}
-  def consolidate(dispatcher, paths) when is_atom(dispatcher) do
-    with {:ok, info} <- beam_dispatcher(dispatcher),
-         {:ok, code} <- change_impl_for(info, paths),
-         do: compile(code)
+        error ->
+          error
+      end
+    end)
+    |> Stream.concat(beams)
   end
 
-  defp beam_dispatcher(dispatcher) do
-    case :beam_lib.chunks(beam_file(dispatcher), [:attributes]) do
-      {:ok, {^dispatcher, [{:attributes, attributes}]}} ->
-        case attributes[:multix] do
-          methods when is_list(methods) and length(methods) > 0 ->
-            {:ok, {dispatcher, methods}}
-          _ ->
-            {:error, :not_a_dispatcher}
-        end
+  defp load_code(name) do
+    name
+    |> beam_file()
+    |> :beam_lib.chunks([:abstract_code, 'ExDc'], [:allow_missing_chunks])
+    |> case do
+      {:ok, {module, [{:abstract_code, {:raw_abstract_v1, abstract_code}}, docs]}} ->
+        {:ok, {module, abstract_code, docs}}
+
       _ ->
-        {:error, :no_beam_info}
+        # TODO convert the file name to a module name
+        {:error, name, :no_beam_info}
     end
   end
 
   defp beam_file(module) when is_atom(module) do
     case :code.which(module) do
-      atom when is_atom(atom) -> module
-      file -> file
+      atom when is_atom(atom) ->
+        module
+
+      '' ->
+        {_module, binary, _file} = :code.get_object_code(module)
+        binary
+
+      file when is_list(file) ->
+        file
     end
   end
 
-  defp change_impl_for({dispatcher, methods}, paths) do
-    {impls, dispatches, inspects} =
-      Enum.reduce(methods, {[], [], []}, fn({f, a}, {impls, dispatches, inspects}) ->
-        key = :"#{dispatcher}.#{f}/#{a}"
+  # Finally compile the module and emit its bytecode.
+  defp save_code({_module, code, docs}) do
+    opts = if Code.compiler_options()[:debug_info], do: [:debug_info], else: []
+    {:ok, mod, binary, _warnings} = :compile.forms(code, [:return | opts])
+    # TODO add docs if we have them
+    {:ok, mod, binary}
+  end
 
-        clauses = key
-        |> Multix.Extractor.extract_impls(paths)
-        |> Multix.Analyzer.sort(key)
-        |> Enum.to_list()
+  defp modify_impl(targets, {source, code, docs}) do
+    targets = :maps.from_list(targets)
 
-        str = Multix.Dispatch.__inspect__(f, a, clauses) |> to_charlist()
+    {code, {_, targets}} =
+      code
+      |> :lists.reverse()
+      |> Enum.flat_map_reduce({%{}, []}, fn
+        {:function, line, name, arity, [clause]} = node, acc ->
+          case Map.fetch(targets, {name, arity}) do
+            {:ok, {m, f, a, opts}} ->
+              {modified, clauses} = acc
 
-        inspect = {:clause, 0, [{:atom, 0, f}, {:integer, 0, a}], [], [
-          {:bin, 0, [{:bin_element, 0, {:string, 0, str}, :default, :default}]}
-        ]}
+              case prepare_clause(clause, source, name, m, f, a, opts) do
+                {new_arity, target_clause, body} ->
+                  modified = Map.put(modified, {name, arity}, {name, new_arity})
+                  clauses = [{m, {f, a}, target_clause} | clauses]
+                  acc = {modified, clauses}
+                  {[{:function, line, name, new_arity, [body]}], acc}
 
-        {i, d} = Enum.reduce(clauses, {impls, dispatches}, fn
-          ({:clause, line, [tuple], guard, body}, {impls, dispatches}) ->
-            f = {:atom, line, f}
-            impl = {:clause, line, [f, tuple], guard, body}
-            dispatch = {:clause, line, [f, tuple], guard, call_impl(body)}
-            {[impl | impls], [dispatch | dispatches]}
-        end)
+                {:inline, target_clause} ->
+                  modified = Map.put(modified, {name, arity}, nil)
+                  clauses = [{m, {f, a}, target_clause} | clauses]
+                  acc = {modified, clauses}
+                  {[], acc}
+              end
 
-        {i, d, [inspect | inspects]}
+            _ ->
+              {[node], acc}
+          end
+
+        {:attribute, _line, :multix_impl, _}, acc ->
+          {[], acc}
+
+        {:attribute, line, :export, exports}, {modified, _} = acc ->
+          exports =
+            exports
+            |> Stream.map(&Map.get(modified, &1, &1))
+            |> Enum.filter(& &1)
+
+          node = {:attribute, line, :export, exports}
+          {[node], acc}
+
+        # TODO handle __info__
+
+        node, acc ->
+          {[node], acc}
       end)
 
-    ast = [
-      {:attribute, 1, :module, dispatcher},
-      {:attribute, 1, :export, [
-        {:consolidated?, 0},
-        {:dispatch, 2},
-        {:impl_for, 2},
-        {:inspect, 2}
-      ]},
-
-      {:function, 1, :consolidated?, 0, [{:clause, 0, [], [], [{:atom, 1, true}]}]},
-      {:function, 1, :dispatch, 2, :lists.reverse(dispatches)},
-      {:function, 1, :impl_for, 2, :lists.reverse(impls)},
-      {:function, 1, :inspect, 2, :lists.reverse(inspects)},
-    ]
-
-    {:ok, ast}
+    {targets, {source, :lists.reverse(code), docs}}
   end
 
-  defp call_impl([{:tuple, line, [m,f,a]}]) do
-    [{:call, line, {:remote, line, m, f}, cons_to_list(a)}]
+  defp prepare_clause(clause, source, name, m, f, a, opts) do
+    case Multix.Analyzer.analyze(clause, opts) do
+      %{inline: true} = analysis ->
+        {:inline, {clause, analysis}}
+
+      %{inline: false, vars: vars} = analysis ->
+        compile_clause(clause, vars, analysis)
+
+      %{pure?: true} = analysis ->
+        {:inline, {clause, analysis}}
+
+      %{vars: vars} = analysis ->
+        compile_clause(clause, vars, analysis)
+    end
   end
 
-  defp cons_to_list({:nil, _}) do
-    []
-  end
-  defp cons_to_list({:cons, _, head, tail}) do
-    [head | cons_to_list(tail)]
+  defp compile_clause(clause, vars, analysis) do
+    # TODO
+    {length(vars), {clause, analysis}, clause}
   end
 
-  # Finally compile the module and emit its bytecode.
-  defp compile(code) do
-    opts = if Code.compiler_options[:debug_info], do: [:debug_info], else: []
-    {:ok, _mod, binary, _warnings} = :compile.forms(code, [:return | opts])
-    {:ok, binary}
+  defp modify_target(targets, {source, code, docs}) do
+    code =
+      Enum.flat_map(code, fn
+        {:function, line, name, arity, clauses} = node ->
+          case Map.fetch(targets, {name, arity}) do
+            {:ok, additional} ->
+              clauses =
+                clauses
+                |> Stream.map(&{&1, Multix.Analyzer.analyze(&1)})
+                |> Stream.concat(additional)
+                |> Multix.Analyzer.sort()
+
+              [{:function, line, name, arity, clauses}]
+
+            _ ->
+              [node]
+          end
+
+        {:attribute, line, :export, exports} = attr ->
+          # TODO add __multix__
+          [attr]
+
+        node ->
+          [node]
+      end)
+
+    {source, code, docs}
   end
 end

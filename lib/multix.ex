@@ -6,9 +6,9 @@ defmodule Multix do
   Start by defining a multimethod inside a module.
 
       defmodule Math do
-        use Multix
-
-        defmulti add(a, b)
+        def add(_, _) do
+          throw :not_implemented
+        end
       end
 
   Implementations can now be added to `Math.add/2` with `defmulti/3`.
@@ -92,15 +92,6 @@ defmodule Multix do
   Returns `{module, function, arguments}` for a multimethod.
   """
 
-  def impl_for(mfa, args) do
-    {m, f, a} = normalize_method(mfa)
-    impl_for(m, f, a, args)
-  end
-
-  @doc """
-  Returns `{module, function, arguments}` for a multimethod.
-  """
-
   def impl_for(module, function, arity, args) when is_list(args) do
     impl_for(module, function, arity, :erlang.list_to_tuple(args))
   end
@@ -138,13 +129,5 @@ defmodule Multix do
       _ ->
         raise ArgumentError, "#{inspect(fun)} not a multimethod"
     end
-  end
-end
-
-defmodule Bar do
-  use Multix
-
-  defmulti Nile.expand(stream, fun) when is_tuple(stream) do
-    true
   end
 end

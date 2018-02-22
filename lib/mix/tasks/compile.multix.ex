@@ -18,6 +18,9 @@ defmodule Mix.Tasks.Compile.Multix do
 
     dispatchers_and_impls = dispatchers_and_impls(config)
 
+    # TODO remove this once i get the manifest diffing working
+    opts = Keyword.put(opts, :force, true)
+
     cond do
       opts[:force] || Mix.Utils.stale?(Mix.Project.config_files(), [manifest]) ->
         clean()
@@ -71,8 +74,6 @@ defmodule Mix.Tasks.Compile.Multix do
   end
 
   def dispatchers_and_impls(manifest, compile_path) do
-    IO.inspect({manifest, compile_path})
-
     for module(beam: beam, module: module) <-
           Mix.Compilers.Elixir.read_manifest(manifest, compile_path),
         kind = detect_kind(module),

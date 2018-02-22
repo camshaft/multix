@@ -81,6 +81,7 @@ defmodule Multix.Consolidator do
   # Finally compile the module and emit its bytecode.
   defp save_code({_module, code, docs}) do
     opts = if Code.compiler_options()[:debug_info], do: [:debug_info], else: []
+    # :io.fwrite('~s~n', [:erl_prettypr.format(:erl_syntax.form_list(code))])
     {:ok, mod, binary, _warnings} = :compile.forms(code, [:return | opts])
     # TODO add docs if we have them
     {:ok, mod, binary}

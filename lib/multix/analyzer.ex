@@ -79,6 +79,18 @@ defmodule Multix.Analyzer do
     sort_type(a, b)
   end
 
+  defp sort_type({:union, a}, {:union, b}) do
+    sort_type(a, b)
+  end
+
+  defp sort_type({:union, a}, b) do
+    sort_type(a, [b])
+  end
+
+  defp sort_type(a, {:union, b}) do
+    sort_type([a], b)
+  end
+
   defp sort_type({a, _}, {a, _}), do: throw(:equal)
   defp sort_type({a, _}, {b, _}), do: __MODULE__.Bif.compare_type(a, b)
 

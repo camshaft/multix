@@ -8,46 +8,30 @@ defmodule Multix.Consolidator do
           | {:error, :not_a_dispatcher}
           | {:error, :no_beam_info}
   def consolidate(impls) do
-    {beams, targets} =
-      impls
-      |> Nile.pmap(
-        fn {impl, targets} ->
-          case load_code(impl) do
-            {:ok, code} ->
-              {targets, code} = modify_impl(targets, code)
-              {targets, save_code(code)}
+    impls = Enum.to_list(impls)
 
-            error ->
-              {[], error}
-          end
-        end,
-        concurrency: @concurrency
-      )
-      |> Enum.map_reduce(%{}, fn {targets, code}, acc ->
-        acc =
-          Enum.reduce(targets, acc, fn {m, fa, clause}, acc ->
-            mod = Map.get(acc, m, %{})
-            clauses = Map.get(mod, fa, [])
-            clauses = [clause | clauses]
-            mod = Map.put(mod, fa, clauses)
-            Map.put(acc, m, mod)
-          end)
-
-        {code, acc}
-      end)
+    beams = load_beams(impls)
+    {targets, beams} = modify_impls(impls, beams)
 
     targets
-    |> Nile.pmap(fn {target, impls} ->
-      case load_code(target) do
-        {:ok, code} ->
-          code = modify_target(impls, code)
-          save_code(code)
+    |> acc_targets()
+    |> modify_targets(beams)
+    |> Nile.pmap(
+      fn {_mod, code} ->
+        save_code(code)
+      end,
+      concurrency: @concurrency
+    )
+  end
 
-        error ->
-          error
-      end
+  defp load_beams(impls) do
+    Enum.reduce(impls, %{}, fn {impl, targets}, acc ->
+      acc = Map.put_new_lazy(acc, impl, fn -> load_code(impl) end)
+
+      Enum.reduce(targets, acc, fn {_fun, {target, _t_fun, _arity, _opts}}, acc ->
+        Map.put_new_lazy(acc, target, fn -> load_code(target) end)
+      end)
     end)
-    |> Stream.concat(beams)
   end
 
   defp load_code(name) do
@@ -56,11 +40,10 @@ defmodule Multix.Consolidator do
     |> :beam_lib.chunks([:abstract_code, 'ExDc'], [:allow_missing_chunks])
     |> case do
       {:ok, {module, [{:abstract_code, {:raw_abstract_v1, abstract_code}}, docs]}} ->
-        {:ok, {module, abstract_code, docs}}
+        {module, abstract_code, docs}
 
       _ ->
-        # TODO convert the file name to a module name
-        {:error, name, :no_beam_info}
+        raise "Error loading #{name}"
     end
   end
 
@@ -79,12 +62,20 @@ defmodule Multix.Consolidator do
   end
 
   # Finally compile the module and emit its bytecode.
-  defp save_code({_module, code, docs}) do
+  defp save_code({module, code, docs}) do
     opts = if Code.compiler_options()[:debug_info], do: [:debug_info], else: []
     # :io.fwrite('~s~n', [:erl_prettypr.format(:erl_syntax.form_list(code))])
     {:ok, mod, binary, _warnings} = :compile.forms(code, [:return | opts])
     # TODO add docs if we have them
     {:ok, mod, binary}
+  end
+
+  defp modify_impls(impls, beams) do
+    Enum.map_reduce(impls, beams, fn {impl, targets}, beams ->
+      code = Map.fetch!(beams, impl)
+      {targets, code} = modify_impl(targets, code)
+      {targets, %{beams | impl => code}}
+    end)
   end
 
   defp modify_impl(targets, {source, code, docs}) do
@@ -157,6 +148,26 @@ defmodule Multix.Consolidator do
   defp compile_clause(clause, vars, analysis) do
     # TODO
     {length(vars), {clause, analysis}, clause}
+  end
+
+  defp acc_targets(impl_targets) do
+    Enum.reduce(impl_targets, %{}, fn targets, acc ->
+      Enum.reduce(targets, acc, fn {m, fa, clause}, acc ->
+        mod = Map.get(acc, m, %{})
+        clauses = Map.get(mod, fa, [])
+        clauses = [clause | clauses]
+        mod = Map.put(mod, fa, clauses)
+        Map.put(acc, m, mod)
+      end)
+    end)
+  end
+
+  defp modify_targets(targets, beams) do
+    Enum.reduce(targets, beams, fn {mod, t}, beams ->
+      code = Map.fetch!(beams, mod)
+      code = modify_target(t, code)
+      %{beams | mod => code}
+    end)
   end
 
   defp modify_target(targets, {source, code, docs}) do

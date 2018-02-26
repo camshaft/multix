@@ -16,7 +16,7 @@ defmodule Test.Multix.Analyzer do
     quote do
       unquote(compile(clauses, env))
       |> Stream.map(&{&1, Multix.Analyzer.analyze(&1)})
-      |> Multix.Analyzer.sort(__ENV__.function)
+      |> Multix.Sorter.sort(__ENV__.function)
     end
     |> compile_assertions(rest, env)
   end
@@ -53,7 +53,7 @@ defmodule Test.Multix.Analyzer do
 
   defp compile_assertions(ast, [rescue: true], _env) do
     quote do
-      assert %Multix.Analyzer.ConflictError{} = catch_error(unquote(ast))
+      assert %Multix.ConflictError{} = catch_error(unquote(ast))
     end
   end
 

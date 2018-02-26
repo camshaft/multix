@@ -18,8 +18,8 @@ defmodule Multix.Mixfile do
 
   defp deps do
     [
-      {:mix_test_watch, ">= 0.0.0", only: :dev},
-      {:nile, ">= 0.1.3"}
+      {:nile, ">= 0.1.3"},
+      {:rl, ">= 0.0.0", only: :dev}
     ]
   end
 end

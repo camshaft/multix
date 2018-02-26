@@ -25,22 +25,29 @@ defmodule Multix.Consolidator do
   end
 
   defp load_beams(impls) do
-    Enum.reduce(impls, %{}, fn {impl, targets}, acc ->
-      acc = Map.put_new_lazy(acc, impl, fn -> load_code(impl) end)
-
-      Enum.reduce(targets, acc, fn {_fun, {target, _t_fun, _arity, _opts}}, acc ->
-        Map.put_new_lazy(acc, target, fn -> load_code(target) end)
+    impls
+    |> Enum.reduce([], fn {impl, targets}, acc ->
+      Enum.reduce(targets, [impl | acc], fn {_fun, {target, _t_fun, _arity, _opts}}, acc ->
+        [target | acc]
       end)
     end)
+    |> Nile.pmap(&{&1, load_code(&1)})
+    |> Enum.into(%{})
   end
 
   defp load_code(name) do
+    chunk_ids = [:abstract_code, 'ExDc', 'ExDp']
+
     name
     |> beam_file()
-    |> :beam_lib.chunks([:abstract_code, 'ExDc'], [:allow_missing_chunks])
+    |> :beam_lib.chunks(chunk_ids, [:allow_missing_chunks])
     |> case do
-      {:ok, {module, [{:abstract_code, {:raw_abstract_v1, abstract_code}}, docs]}} ->
-        {module, abstract_code, docs}
+      {:ok, {module, [{:abstract_code, {:raw_abstract_v1, abstract_code}} | extras]}} ->
+        extra_chunks =
+          for {name, contents} when is_binary(contents) <- extras,
+              do: {List.to_string(name), contents}
+
+        {module, abstract_code, extra_chunks}
 
       _ ->
         raise "Error loading #{name}"
@@ -62,12 +69,11 @@ defmodule Multix.Consolidator do
   end
 
   # Finally compile the module and emit its bytecode.
-  defp save_code({module, code, docs}) do
+  defp save_code({_, code, extra_chunks}) do
     opts = if Code.compiler_options()[:debug_info], do: [:debug_info], else: []
     # :io.fwrite('~s~n', [:erl_prettypr.format(:erl_syntax.form_list(code))])
     {:ok, mod, binary, _warnings} = :compile.forms(code, [:return | opts])
-    # TODO add docs if we have them
-    {:ok, mod, binary}
+    {:ok, mod, :elixir_erl.add_beam_chunks(binary, extra_chunks)}
   end
 
   defp modify_impls(impls, beams) do
@@ -180,7 +186,7 @@ defmodule Multix.Consolidator do
                 clauses
                 |> Stream.map(&{&1, Multix.Analyzer.analyze(&1)})
                 |> Stream.concat(additional)
-                |> Multix.Analyzer.sort()
+                |> Multix.Sorter.sort()
 
               [{:function, line, name, arity, clauses}]
 

@@ -1,105 +1,6 @@
 defmodule Multix.Analyzer do
   @moduledoc false
 
-  def sort(impls, fa \\ nil) do
-    impls
-    |> Enum.sort(&sort_analysis(&1, &2, fa))
-    |> Enum.map(&elem(&1, 0))
-  end
-
-  defp sort_analysis(
-         {_clause_a, %{file: file, line: a}},
-         {_clause_b, %{file: file, line: b}},
-         _fa
-       )
-       when a !== b do
-    a <= b
-  end
-
-  defp sort_analysis({_clause_a, %{priority: a}}, {_clause_b, %{priority: b}}, _fa) when a !== b do
-    a <= b
-  end
-
-  defp sort_analysis(
-         {clause_a, %{type: a}},
-         {clause_b, %{type: b}},
-         fa
-       ) do
-    try do
-      sort_type(a, b)
-    catch
-      :equal ->
-        raise __MODULE__.ConflictError, a: clause_a, b: clause_b, fa: fa
-    end
-  end
-
-  defp sort_type({:literal, a}, {:literal, b}) when a !== b, do: a >= b
-
-  defp sort_type({:guarded_var, {_, a}}, {:guarded_var, {_, b}}) do
-    sort_assertions(a, b)
-  end
-
-  defp sort_type([], []), do: throw(:equal)
-  defp sort_type([], _), do: false
-  defp sort_type(_, []), do: true
-
-  defp sort_type([a | a_r], [b | b_r]) do
-    sort_type(a, b)
-  catch
-    :equal ->
-      sort_type(a_r, b_r)
-  end
-
-  defp sort_type(a, b) when is_list(a) do
-    sort_type({:list, a}, b)
-  end
-
-  defp sort_type(a, b) when is_list(b) do
-    sort_type(a, {:list, b})
-  end
-
-  defp sort_type({:binary, {s, a_els}}, {:binary, {s, b_els}}) do
-    sort_type(a_els, b_els)
-  end
-
-  defp sort_type({:binary, {a_s, _}}, {:binary, {b_s, _}}) do
-    a_s >= b_s
-  end
-
-  defp sort_type({:tuple, a}, {:tuple, b}) do
-    sort_type(a, b)
-  end
-
-  defp sort_type({:list, a}, {:list, b}) do
-    sort_type(a, b)
-  end
-
-  ## TODO show potential warnings with maps
-  defp sort_type({:map, a}, {:map, b}) do
-    sort_type(a, b)
-  end
-
-  defp sort_type({:union, a}, {:union, b}) do
-    sort_type(a, b)
-  end
-
-  defp sort_type({:union, a}, b) do
-    sort_type(a, [b])
-  end
-
-  defp sort_type(a, {:union, b}) do
-    sort_type([a], b)
-  end
-
-  defp sort_type({a, _}, {a, _}), do: throw(:equal)
-  defp sort_type({a, _}, {b, _}), do: __MODULE__.Bif.compare_type(a, b)
-
-  defp sort_assertions(a, a), do: throw(:equal)
-
-  defp sort_assertions(%{type: a}, %{type: b}) when a !== b do
-    __MODULE__.Bif.compare_type(a, b)
-  end
-
   def analyze({:clause, _line, args, clauses, _body}, opts \\ %{}) do
     assertions = analyze_clause(clauses)
     type = analyze_type(args, assertions)
@@ -130,7 +31,7 @@ defmodule Multix.Analyzer do
     Map.update(acc, name, assertions, &Map.merge(&1, assertions))
   end
 
-  __MODULE__.Bif.get()
+  Multix.Sorter.Bif.get()
   |> Enum.each(fn {{f, a}, arg_assertions} ->
     acc = Macro.var(:acc, nil)
     logic = Macro.var(:logic, nil)
@@ -185,7 +86,7 @@ defmodule Multix.Analyzer do
      end)
      |> Enum.sort(fn a, b ->
        try do
-         sort_type(a, b)
+         Multix.Sorter.sort_type(a, b)
        catch
          :equal ->
            true
@@ -222,7 +123,7 @@ defmodule Multix.Analyzer do
         l
 
       {a, b} ->
-        {:union, [a, b]}
+        {:match, [a, b]}
     end
   end
 

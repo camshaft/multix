@@ -1,4 +1,4 @@
-defmodule Multix.Analyzer.Bif do
+defmodule Multix.Sorter.Bif do
   bifs = %{
     {:*, 2} => [
       [type: :number],
